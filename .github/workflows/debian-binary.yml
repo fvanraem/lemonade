@@ -43,6 +43,10 @@ jobs:
           release: "13"
           codename: trixie
 
+      - name: Install build dependencies
+        run: |
+          apt-get update && apt-get build-dep . -y
+
       - name: Pre-fetch CMake dependencies
         run: |
           cmake -B /tmp/prefetch \
