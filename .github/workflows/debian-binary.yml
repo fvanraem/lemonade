@@ -43,12 +43,23 @@ jobs:
           release: "13"
           codename: trixie
 
+      - name: Pre-fetch CMake dependencies
+        run: |
+          cmake -B /tmp/prefetch \
+            -DFETCHCONTENT_BASE_DIR=/tmp/fc-deps \
+            -DBUILD_WEB_APP=OFF
+          rm -rf /tmp/prefetch
+
+      - name: Inject FETCHCONTENT_BASE_DIR into debian/rules
+        run: |
+          sed -i 's|dh_auto_configure --|dh_auto_configure -- -DFETCHCONTENT_BASE_DIR=/tmp/fc-deps|' debian/rules
+
       - name: Build binary package
         id: build_binary
         uses: ./.github/actions/build-debian-package
         with:
           package-type: binary
-          deb-version: 0.${{ steps.get_version.outputs.version }}
+          deb-version: ${{ steps.get_version.outputs.version }}
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v7
