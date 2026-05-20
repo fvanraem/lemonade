@@ -1,0 +1,54 @@
+# Copyright(C) 2025-2026 Advanced Micro Devices, Inc. All rights reserved.
+# SPDX-License-Identifier: MIT
+
+name: Debian Binary Package
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (.deb)
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:trixie
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory $(pwd)
+
+      - name: Prepare Debian build
+        id: get_version
+        uses: ./.github/actions/prepare-debian-build
+        with:
+          release: "13"
+          codename: trixie
+
+      - name: Build binary package
+        id: build_binary
+        uses: ./.github/actions/build-debian-package
+        with:
+          package-type: binary
+          deb-version: ${{ steps.get_version.outputs.version }}
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lemonade-debian-trixie-deb
+          path: ${{ steps.build_binary.outputs.output-dir }}/*.deb
+          retention-days: 30
