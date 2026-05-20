@@ -1,1 +1,11 @@
 *.py text eol=lf
+
+* text=auto eol=lf
+
+# Force LF for scripts
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Windows-specific files
+*.bat text eol=crlf
+*.cmd text eol=crlf
