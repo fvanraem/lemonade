@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Mario Limonciello <superm1@debian.org>
 Build-Depends:
  cmake,
- debhelper-compat,
+ debhelper-compat (= 13),
  dh-cmake,
  dh-cmake-compat,
  dh-sequence-cmake,
