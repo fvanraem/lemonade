@@ -26,7 +26,6 @@ Build-Depends:
  node-highlight.js,
  node-html-webpack-plugin,
  node-markdown-it,
- node-markdown-it-texmath,
  node-process,
  node-react,
  node-react-dom,
