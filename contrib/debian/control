@@ -4,15 +4,15 @@ Priority: optional
 Maintainer: Mario Limonciello <superm1@debian.org>
 Build-Depends:
  cmake,
- debhelper-compat (= 13),
+ debhelper-compat,
  dh-cmake,
- dh-cmake-compat (= 1),
+ dh-cmake-compat,
  dh-sequence-cmake,
  fonts-katex,
  jq,
  libdrm-dev,
  libcli11-dev,
- libcpp-httplib-dev (>> 0.26),
+ libcpp-httplib-dev,
  libcurl4-openssl-dev,
  libjs-katex,
  libssl-dev,
