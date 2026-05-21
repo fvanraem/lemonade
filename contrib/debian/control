@@ -6,7 +6,7 @@ Build-Depends:
  cmake,
  debhelper-compat (= 13),
  dh-cmake,
- dh-cmake-compat,
+ dh-cmake-compat (= 1),
  dh-sequence-cmake,
  fonts-katex,
  jq,
