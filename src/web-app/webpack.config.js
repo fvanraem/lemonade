@@ -28,6 +28,22 @@ module.exports = (env, argv) => {
     }
   }
 
+  // When using system packages, stub out markdown-it-texmath if not available
+  // (Debian does not ship node-markdown-it-texmath). Math rendering degrades
+  // gracefully — equations render as plain text.
+  let texmathAlias = {};
+  if (useSystemPackages) {
+    const texmathPaths = [
+      '/usr/share/nodejs/markdown-it-texmath',
+      '/usr/lib/nodejs/markdown-it-texmath',
+      '/usr/share/javascript/markdown-it-texmath',
+    ];
+    const texmathFound = texmathPaths.some(p => fs.existsSync(p) || fs.existsSync(p + '.js') || fs.existsSync(p + '/index.js'));
+    if (!texmathFound) {
+      texmathAlias = { 'markdown-it-texmath$': path.resolve(__dirname, 'texmath-stub.js') };
+    }
+  }
+
   // Resolve polyfills conditionally - try to resolve them, but fall back to false if not available
   let bufferPolyfill = false;
   let processPolyfill = false;
@@ -101,6 +117,7 @@ module.exports = (env, argv) => {
       ],
       alias: {
         ...katexAlias,
+        ...texmathAlias,
         // The shared renderer (symlinked from ../app/src) imports @tauri-apps/*
         // modules in tauriShim.ts. The web-app intentionally excludes those
         // packages; alias each specifier to a no-op stub. The shim never calls
