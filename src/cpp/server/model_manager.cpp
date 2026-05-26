@@ -1,6 +1,7 @@
 #include <lemon/model_manager.h>
 #include <lemon/runtime_config.h>
 #include <lemon/hf_variants.h>
+#include <lemon/gguf_capabilities.h>
 #include <lemon/utils/json_utils.h>
 #include <lemon/utils/http_client.h>
 #include <lemon/utils/process_manager.h>
@@ -342,6 +343,17 @@ static void populate_static_max_context_window(ModelInfo& info) {
         std::string gguf_path = info.resolved_path();
         if (!gguf_path.empty() && ends_with_ignore_case(gguf_path, ".gguf") && safe_exists(path_from_utf8(gguf_path))) {
             info.max_context_window = read_gguf_context_length(gguf_path);
+
+            // GGUF vision/tool metadata are LLM capabilities. Do not apply
+            // them to embedding/reranking models, otherwise labels such as
+            // tool-calling would reclassify the model away from its endpoint
+            // type and break /embeddings or /rerank.
+            if (info.type == ModelType::LLM) {
+                std::ifstream in(path_from_utf8(gguf_path), std::ios::binary);
+                if (in) {
+                    apply_gguf_capability_labels(info.labels, read_gguf_capabilities(in));
+                }
+            }
         }
     } else if (info.recipe == "flm") {
         info.max_context_window = read_flm_max_context_window(info);
@@ -1238,6 +1250,82 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
                 return filepath;
             }
         }
+        
+        // Case 5: Local quant-token fallback.
+        //
+        // Keep the existing resolver cases above as the primary logic: exact
+        // filenames, suffix matches, and folder-based sharding are more
+        // specific and preserve the CHECKPOINT:VARIANT contract.
+        //
+        // Some GGUF repositories name files with the quant token in the middle,
+        // for example:
+        //   Qwen3.6-27B-MTP-IMAT-IQ4_XS-Q8nextn.gguf
+        // for variant:
+        //   IQ4_XS
+        // That file does not end with IQ4_XS.gguf, so mirror the downloader's
+        // GGUF variant enumeration over the files that are already present in
+        // the local HF cache before declaring the model missing.
+        //
+        // HF cache paths have an extra snapshots/<revision>/ prefix that is not
+        // part of the repository-relative filename. Strip it before calling
+        // enumerate_gguf_variants(); otherwise the enumerator treats
+        // "snapshots" as a top-level sharded-folder variant and never extracts
+        // the quant token from the actual GGUF filename.
+        std::vector<std::string> relative_gguf_files;
+        std::map<std::string, std::string> absolute_by_relative;
+        auto repo_relative_from_cache_relative = [](std::string rel) {
+            std::replace(rel.begin(), rel.end(), '\\', '/');
+
+            static const std::string snapshots_prefix = "snapshots/";
+            if (rel.rfind(snapshots_prefix, 0) == 0) {
+                size_t revision_end = rel.find('/', snapshots_prefix.size());
+                if (revision_end != std::string::npos && revision_end + 1 < rel.size()) {
+                    rel = rel.substr(revision_end + 1);
+                }
+            }
+
+            return rel;
+        };
+
+        for (const auto& filepath : all_gguf_files) {
+            std::string relative_path = path_to_utf8(
+                path_from_utf8(filepath).lexically_relative(model_cache_path_fs));
+            relative_path = repo_relative_from_cache_relative(relative_path);
+
+            // Multiple HF snapshots can contain the same repo-relative file.
+            // Keep the first absolute path from the sorted all_gguf_files list
+            // so duplicates do not create false ambiguity.
+            if (absolute_by_relative.emplace(relative_path, filepath).second) {
+                relative_gguf_files.push_back(relative_path);
+            }
+        }
+
+        std::vector<std::string> enumerated_matches;
+        auto local_variants = lemon::enumerate_gguf_variants(relative_gguf_files);
+        for (const auto& local_variant : local_variants.variants) {
+            if (to_lower(local_variant.name) != variant_lower) {
+                continue;
+            }
+
+            auto it = absolute_by_relative.find(local_variant.primary_file);
+            if (it != absolute_by_relative.end()) {
+                enumerated_matches.push_back(it->second);
+            }
+        }
+
+        if (enumerated_matches.size() == 1) {
+            LOG(INFO, "ModelManager")
+                << "Resolved local GGUF variant '" << variant
+                << "' via quant-token fallback: " << enumerated_matches[0] << std::endl;
+            return enumerated_matches[0];
+        }
+
+        if (enumerated_matches.size() > 1) {
+            LOG(WARNING, "ModelManager")
+                << "Multiple local GGUF files matched variant '" << variant
+                << "' via quant-token fallback; refusing to guess" << std::endl;
+            return "";
+        }
 
         // No match found for the requested GGUF variant. Do not fall back to
         // another quantization in the same Hugging Face repo; otherwise a
@@ -1770,6 +1858,26 @@ void ModelManager::update_model_in_cache(const std::string& model_name, bool dow
             it->second.max_context_window = 0;
             LOG(INFO, "ModelManager") << "Updated '" << model_name
                       << "' downloaded=" << downloaded << std::endl;
+        }
+        // Calculate size in GB
+        uintmax_t total_size = 0;
+        for (auto& [type, path] : it->second.resolved_paths) {
+            try {
+                total_size += fs::file_size(path);
+            } catch (...) {
+                // skip inaccessible entries
+            }
+        }
+        double file_size_gb = static_cast<double>(total_size) / (1024.0 * 1024.0 * 1024.0);
+        if (file_size_gb < 1.0)
+        {
+            it->second.size = std::round(file_size_gb * 1000) / 1000;
+        } else if (file_size_gb < 10.0)
+        {
+            it->second.size = std::round(file_size_gb * 100) / 100;
+        } else
+        {
+            it->second.size = std::round(file_size_gb * 10) / 10;
         }
 
         // Recompute downloaded status for any collections that
@@ -2333,6 +2441,23 @@ void ModelManager::download_registered_model(const ModelInfo& info, bool do_not_
 
     // Update cache after successful download
     update_model_in_cache(info.model_name, true);
+
+    std::string canonical_model_name = resolve_model_name(info.model_name);
+    if (is_user_model_name(canonical_model_name))
+    {
+        std::lock_guard<std::mutex> lock(models_cache_mutex_);
+        auto it = models_cache_.find(info.model_name);
+        if (it != models_cache_.end())
+        {
+            json updated_user_models = user_models_;
+            auto model = updated_user_models.find(strip_user_model_prefix(canonical_model_name));
+            if (model != updated_user_models.end()) {
+                (*model)["size"] = it->second.size;
+                user_models_ = updated_user_models;
+                save_user_models(updated_user_models);
+            }
+        }
+    }
 }
 
 void ModelManager::download_model(const std::string& model_name,
