@@ -8,9 +8,9 @@ on:
         type: boolean
         default: false
   pull_request:
-  schedule:
+  #schedule:
     # Sunday at 12:00 PM ET (17:00 UTC, 16:00 UTC during EDT)
-    - cron: "0 16 * * 0"
+  #  - cron: "0 16 * * 0"
 
 permissions:
   contents: write
