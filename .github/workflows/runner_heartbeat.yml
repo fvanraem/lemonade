@@ -1,8 +1,8 @@
 name: Runner Heartbeat
 
 on:
-  schedule:
-    - cron: "0 1 * * 0"    # every Sunday at 1AM UTC
+  #schedule:
+  #  - cron: "0 1 * * 0"    # every Sunday at 1AM UTC
   workflow_dispatch:
 
 permissions:
