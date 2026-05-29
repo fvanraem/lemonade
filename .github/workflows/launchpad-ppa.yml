@@ -4,11 +4,11 @@ permissions:
   contents: read
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - '*'
+  #push:
+  #  branches:
+  #    - main
+  #  tags:
+  #    - '*'
   pull_request:
     branches:
       - main
